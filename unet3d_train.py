@@ -1,5 +1,6 @@
 #
-from vit_pytorch import *
+#from vit_pytorch import *
+from unet3dencoder import *
 import torch
 import argparse
 import numpy as np
@@ -128,7 +129,7 @@ def createOneMutatedIcosphere():
 
 global numpoints
 numpoints = 9002
-side = 16
+side = 32
 sf = .99999
 xs = np.zeros((side,side,side))
 ys = np.zeros((side,side,side))
@@ -271,7 +272,7 @@ class MutatedIcospheresDataset(torch.utils.data.Dataset):
 
 dataset = MutatedIcospheresDataset(length=20)
 
-mini_batch = 20
+mini_batch = 10
 loader_demo = data.DataLoader(
     dataset,
     batch_size=mini_batch,
@@ -291,8 +292,9 @@ loader_train = data.DataLoader(
     num_workers=4)
 
 def mse_vit(input, target,model=None,ret_out = False):
+    #print('1')
     try:
-        assert input.shape == (20,1,16,16,16)
+        #assert input.shape == (20,1,64,64,64)
         out = model(input)
     except:
         print(seed,'input',input.shape)
@@ -300,11 +302,14 @@ def mse_vit(input, target,model=None,ret_out = False):
         print(seed,traceback.format_exc())
         exit()
     
+    #print('2',out.shape,target.shape)
     out = out.reshape(target.shape)#64, 1000, 2
+    #print('3',out.shape,target.shape)
+    
     assert torch.max(out)<1.1
     assert torch.max(target)<1.1
-    
     #out = out#fix this
+    #print('4')
     if not ret_out:
         return torch.mean((out-target)**2)
     else:
@@ -327,25 +332,14 @@ depth = np.random.choice([i for i in range (9,13)])#search over depth
 
 try:
     #dim,mlp_dim,heads,depth = 2048,2048,16,6
-    model = ViT3d(
-        image_size = 16,
-        patch_size = 4,
-        num_classes = 9002*3,
-        dim = dim, 
-        depth = depth,
-        heads = heads,
-        mlp_dim = mlp_dim,
-        dropout = 0.1,
-        emb_dropout = 0.1,
-        channels=1
-    )
+    model = UNetEncoder()
     #img = torch.randn(100,1, 16, 16,16)keep
     #preds = v(img)# (1, 1000)
 
-    model = torch.nn.Sequential(
-        model,
-        torch.nn.Sigmoid()
-    )
+    # model = torch.nn.Sequential(
+    #     model,
+    #     torch.nn.Sigmoid()
+    # )
     model = model.cuda()
     torch.cuda.empty_cache()
     optimizer = torch.optim.Adam(model.parameters(),lr = 0.001, betas = (.9,.999))#ideal
@@ -353,12 +347,16 @@ try:
         for x,y in loader_train:
             optimizer.zero_grad()
             x = x.cuda()
-            assert x.shape == (20,1,16,16,16)
+            #assert x.shape == (20,1,64,64,64)
 
             y = y.cuda()
+            #print('a')
             loss = mse_vit(x,y,model=model)
+            #print('b')
             loss.backward()
+            #print('c')
             optimizer.step()
+            #print('d')
         print(seed,'epoch',epoch,'loss',loss)
 
     optimizer = torch.optim.Adam(model.parameters(),lr = 0.0001, betas = (.9,.999))#ideal
@@ -397,7 +395,7 @@ try:
 
     for x,y in loader_test:
         x = x.cuda()
-        assert x.shape == (20,1,16,16,16)
+        #assert x.shape == (20,1,16,16,16)
         y = y.cuda()
         loss = mse_vit(x,y,model=model)
         print(seed,'validation loss',loss)

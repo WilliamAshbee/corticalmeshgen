@@ -4,9 +4,10 @@ from torch.nn import Module, Sequential
 from torch.nn import Conv3d, ConvTranspose3d, BatchNorm3d, MaxPool3d, AvgPool1d, Dropout3d
 from torch.nn import ReLU, Sigmoid
 import torch
+import torch.nn.functional as F
 
 
-class UNet(Module):
+class UNetEncoder(Module):
     # __                            __
     #  1|__   ________________   __|1
     #     2|__  ____________  __|2
@@ -17,7 +18,7 @@ class UNet(Module):
     def __init__(self, num_channels=1, feat_channels=[64, 256, 256, 512, 1024], residual='conv'):
         # residual: conv for residual input x through 1*1 conv across every layer for downsampling, None for removal of residuals
 
-        super(UNet, self).__init__()
+        super(UNetEncoder, self).__init__()
 
         # Encoder downsamplers
         self.pool1 = MaxPool3d((2, 2, 2))
@@ -32,20 +33,10 @@ class UNet(Module):
         self.conv_blk4 = Conv3D_Block(feat_channels[2], feat_channels[3], residual=residual)
         self.conv_blk5 = Conv3D_Block(feat_channels[3], feat_channels[4], residual=residual)
 
-        # Decoder convolutions
-        self.dec_conv_blk4 = Conv3D_Block(2 * feat_channels[3], feat_channels[3], residual=residual)
-        self.dec_conv_blk3 = Conv3D_Block(2 * feat_channels[2], feat_channels[2], residual=residual)
-        self.dec_conv_blk2 = Conv3D_Block(2 * feat_channels[1], feat_channels[1], residual=residual)
-        self.dec_conv_blk1 = Conv3D_Block(2 * feat_channels[0], feat_channels[0], residual=residual)
+        self.linear1 = torch.nn.Linear(in_features=8192, out_features=8000*2)
+        self.bn1 = torch.nn.BatchNorm1d(num_features=8000*2)
+        self.linear2 = torch.nn.Linear(in_features=8000*2, out_features=9002*3)
 
-        # Decoder upsamplers
-        self.deconv_blk4 = Deconv3D_Block(feat_channels[4], feat_channels[3])
-        self.deconv_blk3 = Deconv3D_Block(feat_channels[3], feat_channels[2])
-        self.deconv_blk2 = Deconv3D_Block(feat_channels[2], feat_channels[1])
-        self.deconv_blk1 = Deconv3D_Block(feat_channels[1], feat_channels[0])
-
-        # Final 1*1 Conv Segmentation map
-        self.one_conv = Conv3d(feat_channels[0], num_channels, kernel_size=1, stride=1, padding=0, bias=True)
 
         # Activation function
         self.sigmoid = Sigmoid()
@@ -67,25 +58,13 @@ class UNet(Module):
         x_low4 = self.pool4(x4)
         base = self.conv_blk5(x_low4)
 
-        # Decoder part
-
-        d4 = torch.cat([self.deconv_blk4(base), x4], dim=1)
-        d_high4 = self.dec_conv_blk4(d4)
-
-        d3 = torch.cat([self.deconv_blk3(d_high4), x3], dim=1)
-        d_high3 = self.dec_conv_blk3(d3)
-        d_high3 = Dropout3d(p=0.5)(d_high3)
-
-        d2 = torch.cat([self.deconv_blk2(d_high3), x2], dim=1)
-        d_high2 = self.dec_conv_blk2(d2)
-        d_high2 = Dropout3d(p=0.5)(d_high2)
-
-        d1 = torch.cat([self.deconv_blk1(d_high2), x1], dim=1)
-        d_high1 = self.dec_conv_blk1(d1)
-
-        seg = self.sigmoid(self.one_conv(d_high1))
-
-        return seg
+        base = torch.flatten(base, start_dim=1)
+        #print('base1')
+        base = F.relu(self.bn1(self.linear1(base)))
+        #print('base3')
+        base = F.sigmoid(self.linear2(base))
+        #print('base4')
+        return base
 
 
 class Conv3D_Block(Module):
